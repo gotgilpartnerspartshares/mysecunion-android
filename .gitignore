@@ -11,3 +11,5 @@
 local.properties
 app/google-services.json
 build_log.txt
+emulator_*.log
+emulator_screen*.png

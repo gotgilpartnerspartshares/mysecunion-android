@@ -15,8 +15,11 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -35,15 +38,24 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_DEEP_LINK_URL = "deep_link_url" // FR-304
+
+        // FR-101: default start URL, overridable via Remote Config (base_url)
+        private const val DEFAULT_BASE_URL = "https://secunion.co.kr/index.html?device=mobile"
+
+        // FR-106/NFR-306: default whitelist, overridable via Remote Config (allowed_hosts)
+        private val DEFAULT_ALLOWED_HOSTS = setOf("secunion.co.kr", "www.secunion.co.kr")
+
+        private const val BACK_EXIT_INTERVAL_MS = 2000L // FR-103
     }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var remoteConfig: FirebaseRemoteConfig
 
-    private var allowedHosts: Set<String> = emptySet()
+    private var allowedHosts: Set<String> = DEFAULT_ALLOWED_HOSTS
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraCaptureUri: Uri? = null
     private var retryAction: () -> Unit = {}
+    private var lastBackPressAt = 0L
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way */ }
@@ -74,11 +86,39 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        CookieManager.getInstance().setAcceptCookie(true) // FR-102: keep session cookies
-
+        setupCookies() // FR-102, NFR-301
+        setupBackPressedHandling() // FR-103
         binding.btnRetry.setOnClickListener { retryAction() } // FR-109
+
         setupRemoteConfig()
         askNotificationPermission()
+    }
+
+    /** FR-102: persist session cookies (incl. third-party) across app restarts. */
+    private fun setupCookies() {
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(binding.webView, true)
+        }
+    }
+
+    /** FR-103: WebView back-history first, double-tap-to-exit at the top level. */
+    private fun setupBackPressedHandling() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (::binding.isInitialized && binding.webView.canGoBack()) {
+                    binding.webView.goBack()
+                    return
+                }
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressAt < BACK_EXIT_INTERVAL_MS) {
+                    finish()
+                } else {
+                    lastBackPressAt = now
+                    Toast.makeText(this@MainActivity, "한 번 더 누르면 종료됩니다", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
     }
 
     private fun setupRemoteConfig() {
@@ -89,8 +129,8 @@ class MainActivity : AppCompatActivity() {
         remoteConfig.setConfigSettingsAsync(configSettings)
         remoteConfig.setDefaultsAsync(
             mutableMapOf<String, Any>(
-                RemoteConfigKeys.BASE_URL to getString(R.string.default_base_url),
-                RemoteConfigKeys.ALLOWED_HOSTS to """["${getString(R.string.default_allowed_host)}"]""",
+                RemoteConfigKeys.BASE_URL to DEFAULT_BASE_URL,
+                RemoteConfigKeys.ALLOWED_HOSTS to defaultAllowedHostsJson(),
                 RemoteConfigKeys.MAINTENANCE_MODE to false,
                 RemoteConfigKeys.MAINTENANCE_MESSAGE to "",
                 RemoteConfigKeys.LATEST_VERSION to BuildConfig.VERSION_NAME,
@@ -99,11 +139,13 @@ class MainActivity : AppCompatActivity() {
         )
         retryAction = { setupRemoteConfig() }
         remoteConfig.fetchAndActivate().addOnCompleteListener {
-            // FR-401: fall back to last-known-good / built-in defaults on failure automatically
-            // (Remote Config keeps last activated values; nothing extra needed here)
+            // FR-401: on failure, Remote Config keeps the last activated (or built-in default) values
             onRemoteConfigReady()
         }
     }
+
+    private fun defaultAllowedHostsJson(): String =
+        JSONArray(DEFAULT_ALLOWED_HOSTS.toList()).toString()
 
     private fun onRemoteConfigReady() {
         allowedHosts = parseAllowedHosts(remoteConfig.getString(RemoteConfigKeys.ALLOWED_HOSTS))
@@ -138,7 +180,7 @@ class MainActivity : AppCompatActivity() {
             val arr = JSONArray(json)
             (0 until arr.length()).map { arr.getString(it).lowercase() }.toSet()
         } catch (e: Exception) {
-            setOf(getString(R.string.default_allowed_host))
+            DEFAULT_ALLOWED_HOSTS
         }
     }
 
@@ -156,6 +198,7 @@ class MainActivity : AppCompatActivity() {
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
             settings.textZoom = 100 // FR-111: ignore system font scaling for layout stability
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW // NFR-301
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
@@ -164,18 +207,18 @@ class MainActivity : AppCompatActivity() {
                 ): Boolean {
                     val uri = request.url
                     return when (uri.scheme) {
-                        "tel", "mailto" -> {
+                        "tel", "mailto", "sms" -> {
                             openExternally(uri); true // FR-106
                         }
                         "http", "https" -> {
                             if (isAllowedHost(uri)) {
                                 false // let WebView load it
                             } else {
-                                openExternally(uri); true // FR-106: outside whitelist -> browser
+                                openExternally(uri); true // FR-106: outside whitelist (incl. t.me) -> browser
                             }
                         }
                         else -> {
-                            openExternally(uri); true // FR-106: telegram etc. via system app
+                            openExternally(uri); true // FR-106: telegram(t.me) / other app schemes
                         }
                     }
                 }
@@ -188,6 +231,7 @@ class MainActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     binding.swipeRefreshLayout.isRefreshing = false
+                    CookieManager.getInstance().flush() // FR-102: persist session cookies to disk
                 }
 
                 override fun onReceivedError(
@@ -236,13 +280,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** FR-104: single chooser that offers both gallery pick and camera capture. */
     private fun buildChooserIntent(): Intent {
         val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
         }
 
-        val hasCamera = packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+        val hasCamera = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
         if (hasCamera && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
         ) {
@@ -265,6 +310,7 @@ class MainActivity : AppCompatActivity() {
         return chooser
     }
 
+    /** FR-104: FileProvider-backed Uri so the camera app can write the capture back to us. */
     private fun prepareCameraCaptureUri() {
         val captureDir = File(cacheDir, "captures").apply { mkdirs() }
         val file = File(captureDir, "upload_${System.currentTimeMillis()}.jpg")
@@ -294,6 +340,7 @@ class MainActivity : AppCompatActivity() {
         (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
     }
 
+    /** FR-106: tel/mailto/sms + telegram + out-of-whitelist http(s) all leave the app. */
     private fun openExternally(uri: Uri) {
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW, uri))
@@ -333,12 +380,14 @@ class MainActivity : AppCompatActivity() {
         if (apkUrl.isNotBlank()) openExternally(Uri.parse(apkUrl))
     }
 
+    /** FR-107: pull-to-refresh reloads the current page. */
     private fun setupSwipeRefresh() {
         binding.swipeRefreshLayout.setOnRefreshListener {
             binding.webView.reload()
         }
     }
 
+    /** FR-109: dedicated error view instead of the browser's default error page. */
     private fun showError(message: String) {
         binding.progressBar.visibility = android.view.View.GONE
         binding.errorMessage.text = message
