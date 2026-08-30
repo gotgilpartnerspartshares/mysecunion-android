@@ -11,5 +11,6 @@
 local.properties
 app/google-services.json
 build_log.txt
+firebase-debug.log
 emulator_*.log
 emulator_screen*.png

@@ -19,6 +19,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.core.content.edit
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -27,6 +28,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mysecunion.app.databinding.ActivityMainBinding
+import com.google.firebase.messaging.FirebaseMessaging
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -39,6 +41,10 @@ class MainActivity : AppCompatActivity() {
         private const val NOTICE_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B05"
         private const val FREE_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B10"
         private const val FAQ_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B11"
+
+        // FR-302: debug/release get separate topics so test pushes never reach production users.
+        private val NOTICE_TOPIC = if (BuildConfig.DEBUG) "notice_debug" else "notice"
+        private const val TOPIC_PREFS = "fcm_topics"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -92,6 +98,26 @@ class MainActivity : AppCompatActivity() {
         remoteConfigManager = RemoteConfigManager()
         fetchRemoteConfigAndProceed { keepSplashOnScreen = false }
         askNotificationPermission()
+        ensureNoticeTopicSubscription() // FR-302
+    }
+
+    /**
+     * FR-302: subscribe to the notice topic, guaranteed — a fire-and-forget call in Application
+     * can silently fail with no retry. Success is recorded in SharedPreferences; a failure leaves
+     * the flag unset so the next launch (or a manual retry) tries again instead of leaving the
+     * install permanently unsubscribed.
+     */
+    private fun ensureNoticeTopicSubscription() {
+        val prefs = getSharedPreferences(TOPIC_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(NOTICE_TOPIC, false)) return
+
+        FirebaseMessaging.getInstance().subscribeToTopic(NOTICE_TOPIC)
+            .addOnCompleteListener(this) { task ->
+                if (task.isSuccessful) {
+                    prefs.edit { putBoolean(NOTICE_TOPIC, true) }
+                }
+                // on failure the flag stays false, so the next launch retries automatically
+            }
     }
 
     /** FR-102: persist session cookies (incl. third-party) across app restarts. */
