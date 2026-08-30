@@ -15,6 +15,10 @@
         <value>["secunion.co.kr", "www.secunion.co.kr"]</value>
     </entry>
     <entry>
+        <key>tabs</key>
+        <value>{"notice":"https://secunion.co.kr/bbs/board.php?bo_table=B05","board":"https://secunion.co.kr/bbs/board.php?bo_table=B10","faq":"https://secunion.co.kr/bbs/board.php?bo_table=B11"}</value>
+    </entry>
+    <entry>
         <key>maintenance_mode</key>
         <value>false</value>
     </entry>

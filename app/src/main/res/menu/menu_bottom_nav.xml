@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FR-202/203: default bottom tab set. Order matters — first item is selected by default. -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/tab_home"
+        android:icon="@drawable/ic_tab_home"
+        android:title="@string/tab_home" />
+    <item
+        android:id="@+id/tab_notice"
+        android:icon="@drawable/ic_tab_notice"
+        android:title="@string/tab_notice" />
+    <item
+        android:id="@+id/tab_board"
+        android:icon="@drawable/ic_tab_board"
+        android:title="@string/tab_board" />
+    <item
+        android:id="@+id/tab_faq"
+        android:icon="@drawable/ic_tab_faq"
+        android:title="@string/tab_faq" />
+</menu>

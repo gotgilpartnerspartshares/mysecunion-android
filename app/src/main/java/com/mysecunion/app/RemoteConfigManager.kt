@@ -6,6 +6,7 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.ktx.remoteConfig
 import com.google.firebase.remoteconfig.ktx.remoteConfigSettings
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Wraps FirebaseRemoteConfig for SRS 4.4 (Remote Config) / 4.5 (version gating / Appendix B).
@@ -47,6 +48,17 @@ class RemoteConfigManager {
         (0 until arr.length()).map { arr.getString(it).lowercase() }.toSet()
     } catch (e: Exception) {
         setOf("secunion.co.kr", "www.secunion.co.kr")
+    }
+
+    /**
+     * FR-202/203: `tabs` is a flat JSON object of tabId -> URL (see res/xml/remote_config_defaults.xml).
+     * Returns null on a missing/unparseable key so callers fall back to their own hardcoded default
+     * instead of crashing or loading a blank page (CON-05: the site's URLs can change without notice).
+     */
+    fun tabUrl(tabId: String): String? = try {
+        JSONObject(remoteConfig.getString(RemoteConfigKeys.TABS)).optString(tabId).ifBlank { null }
+    } catch (e: Exception) {
+        null
     }
 
     fun isMaintenanceMode(): Boolean = remoteConfig.getBoolean(RemoteConfigKeys.MAINTENANCE_MODE)

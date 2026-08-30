@@ -34,6 +34,11 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_DEEP_LINK_URL = "deep_link_url" // FR-304
         private const val BACK_EXIT_INTERVAL_MS = 2000L // FR-103
+
+        // FR-202/203: literal fallbacks used when Remote Config `tabs` doesn't have the key yet.
+        private const val NOTICE_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B05"
+        private const val FREE_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B10"
+        private const val FAQ_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B11"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -81,6 +86,7 @@ class MainActivity : AppCompatActivity() {
 
         setupCookies() // FR-102, NFR-301
         setupBackPressedHandling() // FR-103
+        setupBottomNavigation() // FR-202/203
         binding.btnRetry.setOnClickListener { retryAction() } // FR-109
 
         remoteConfigManager = RemoteConfigManager()
@@ -113,6 +119,45 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    /**
+     * FR-202/203: tab tap loads its URL immediately, overriding whatever the WebView
+     * was mid-navigation on. Re-tapping the already-selected Home tab resets to top
+     * instead of doing nothing (BottomNavigationView doesn't re-fire onItemSelected
+     * for that case, hence the separate reselect listener).
+     */
+    private fun setupBottomNavigation() {
+        binding.bottomNavigation.setOnItemSelectedListener { item ->
+            loadTabUrl(urlForTab(item.itemId))
+            true
+        }
+        binding.bottomNavigation.setOnItemReselectedListener { item ->
+            if (item.itemId == R.id.tab_home) {
+                resetHomeTab()
+            } else {
+                loadTabUrl(urlForTab(item.itemId))
+            }
+        }
+    }
+
+    private fun urlForTab(menuItemId: Int): String = when (menuItemId) {
+        R.id.tab_home -> remoteConfigManager.baseUrl()
+        R.id.tab_notice -> remoteConfigManager.tabUrl("notice") ?: NOTICE_BOARD_URL
+        R.id.tab_board -> remoteConfigManager.tabUrl("board") ?: FREE_BOARD_URL
+        R.id.tab_faq -> remoteConfigManager.tabUrl("faq") ?: FAQ_BOARD_URL
+        else -> remoteConfigManager.baseUrl()
+    }
+
+    private fun loadTabUrl(url: String) {
+        if (!::binding.isInitialized) return
+        binding.webView.loadUrl(url)
+    }
+
+    /** FR-202: re-tapping Home resets WebView history to top instead of staying mid-navigation. */
+    private fun resetHomeTab() {
+        binding.webView.loadUrl(remoteConfigManager.baseUrl())
+        binding.webView.clearHistory()
     }
 
     /** SRS 4.4/4.5: fetch Remote Config, then gate on maintenance mode / forced update before loading. */
