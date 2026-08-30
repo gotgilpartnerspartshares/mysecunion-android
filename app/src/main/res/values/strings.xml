@@ -12,4 +12,9 @@
     <!-- Fallback defaults, overridden by Remote Config (Appendix B) -->
     <string name="default_base_url" translatable="false">https://secunion.co.kr/index.html?device=mobile</string>
     <string name="default_allowed_host" translatable="false">secunion.co.kr</string>
+
+    <!-- FR-109: error view -->
+    <string name="error_generic_message">페이지를 불러오지 못했습니다.\n네트워크 상태를 확인한 뒤 다시 시도해 주세요.</string>
+    <string name="error_retry">다시 시도</string>
+    <string name="error_maintenance">점검 중입니다. 잠시 후 다시 시도해 주세요.</string>
 </resources>

@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private var allowedHosts: Set<String> = emptySet()
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraCaptureUri: Uri? = null
+    private var retryAction: () -> Unit = {}
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way */ }
@@ -75,6 +76,7 @@ class MainActivity : AppCompatActivity() {
 
         CookieManager.getInstance().setAcceptCookie(true) // FR-102: keep session cookies
 
+        binding.btnRetry.setOnClickListener { retryAction() } // FR-109
         setupRemoteConfig()
         askNotificationPermission()
     }
@@ -95,6 +97,7 @@ class MainActivity : AppCompatActivity() {
                 RemoteConfigKeys.MIN_SUPPORTED_VERSION to BuildConfig.VERSION_NAME,
             )
         )
+        retryAction = { setupRemoteConfig() }
         remoteConfig.fetchAndActivate().addOnCompleteListener {
             // FR-401: fall back to last-known-good / built-in defaults on failure automatically
             // (Remote Config keeps last activated values; nothing extra needed here)
@@ -106,15 +109,16 @@ class MainActivity : AppCompatActivity() {
         allowedHosts = parseAllowedHosts(remoteConfig.getString(RemoteConfigKeys.ALLOWED_HOSTS))
 
         if (remoteConfig.getBoolean(RemoteConfigKeys.MAINTENANCE_MODE)) {
-            showStatus(
+            showError(
                 remoteConfig.getString(RemoteConfigKeys.MAINTENANCE_MESSAGE)
-                    .ifBlank { "점검 중입니다. 잠시 후 다시 시도해 주세요." } // FR-403
+                    .ifBlank { getString(R.string.error_maintenance) } // FR-403
             )
             return
         }
 
         if (checkForcedUpdate()) return
 
+        hideError()
         setupWebView()
         setupSwipeRefresh()
         binding.webView.loadUrl(resolveStartUrl())
@@ -176,6 +180,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    hideError()
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     binding.swipeRefreshLayout.isRefreshing = false
@@ -188,12 +197,25 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true) {
-                        showStatus("페이지를 불러오지 못했습니다.\n네트워크 상태를 확인한 뒤 다시 시도해 주세요.") // FR-109
+                        binding.swipeRefreshLayout.isRefreshing = false
+                        retryAction = { binding.webView.reload() }
+                        showError(getString(R.string.error_generic_message)) // FR-109
                     }
                 }
             }
 
             webChromeClient = object : WebChromeClient() {
+                // FR-108: top loading progress
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    super.onProgressChanged(view, newProgress)
+                    if (newProgress >= 100) {
+                        binding.progressBar.visibility = android.view.View.GONE
+                    } else {
+                        binding.progressBar.visibility = android.view.View.VISIBLE
+                        binding.progressBar.progress = newProgress
+                    }
+                }
+
                 // FR-104: file upload (gallery + camera)
                 override fun onShowFileChooser(
                     webView: WebView?,
@@ -317,10 +339,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showStatus(message: String) {
-        binding.swipeRefreshLayout.visibility = android.view.View.GONE
-        binding.statusOverlay.visibility = android.view.View.VISIBLE
-        binding.statusOverlay.text = message
+    private fun showError(message: String) {
+        binding.progressBar.visibility = android.view.View.GONE
+        binding.errorMessage.text = message
+        binding.errorView.visibility = android.view.View.VISIBLE
+    }
+
+    private fun hideError() {
+        binding.errorView.visibility = android.view.View.GONE
     }
 
     private fun askNotificationPermission() {
