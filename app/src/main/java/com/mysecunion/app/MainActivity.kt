@@ -28,6 +28,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mysecunion.app.databinding.ActivityMainBinding
+import com.mysecunion.app.fcm.PushMessagingService
 import com.google.firebase.messaging.FirebaseMessaging
 import java.io.File
 
@@ -41,9 +42,6 @@ class MainActivity : AppCompatActivity() {
         private const val NOTICE_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B05"
         private const val FREE_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B10"
         private const val FAQ_BOARD_URL = "https://secunion.co.kr/bbs/board.php?bo_table=B11"
-
-        // FR-302: debug/release get separate topics so test pushes never reach production users.
-        private val NOTICE_TOPIC = if (BuildConfig.DEBUG) "notice_debug" else "notice"
         private const val TOPIC_PREFS = "fcm_topics"
     }
 
@@ -108,13 +106,14 @@ class MainActivity : AppCompatActivity() {
      * install permanently unsubscribed.
      */
     private fun ensureNoticeTopicSubscription() {
+        val topic = PushMessagingService.NOTICE_TOPIC
         val prefs = getSharedPreferences(TOPIC_PREFS, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(NOTICE_TOPIC, false)) return
+        if (prefs.getBoolean(topic, false)) return
 
-        FirebaseMessaging.getInstance().subscribeToTopic(NOTICE_TOPIC)
+        FirebaseMessaging.getInstance().subscribeToTopic(topic)
             .addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
-                    prefs.edit { putBoolean(NOTICE_TOPIC, true) }
+                    prefs.edit { putBoolean(topic, true) }
                 }
                 // on failure the flag stays false, so the next launch retries automatically
             }

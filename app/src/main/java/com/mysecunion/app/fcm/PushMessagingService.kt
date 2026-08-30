@@ -6,24 +6,36 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
+import com.mysecunion.app.BuildConfig
 import com.mysecunion.app.MainActivity
 import com.mysecunion.app.R
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 /**
- * FR-301~309: receives admin-sent FCM pushes (topic "notice"), routes them into
- * one of three channels, dedupes by msg_id, and deep-links into MainActivity
- * on tap. Payload shape: see SRS Appendix C.
+ * FR-301~309: receives admin-sent FCM pushes, routes them into one of three
+ * channels, dedupes by msg_id, and deep-links into MainActivity on tap.
+ * Payload shape: see SRS Appendix C.
  */
 class PushMessagingService : FirebaseMessagingService() {
 
+    companion object {
+        // FR-302: debug/release get separate topics so test pushes never reach production users.
+        val NOTICE_TOPIC: String = if (BuildConfig.DEBUG) "notice_debug" else "notice"
+    }
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // No app server to notify (CON-01) — topics alone drive delivery.
+        // No app server to notify (CON-01) — topics alone drive delivery. Still (re)subscribe
+        // here per Firebase's own guidance ("onNewToken ... is where you should complete any
+        // initialization-related tasks"); MainActivity.ensureNoticeTopicSubscription() covers
+        // the normal launch path with a success/retry guarantee, this just covers token rotation.
+        FirebaseMessaging.getInstance().subscribeToTopic(NOTICE_TOPIC)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -91,6 +103,10 @@ class PushMessagingService : FirebaseMessagingService() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body)) // FR-703: full text visible even if site is down
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(priority)
+            // Only takes effect on API <26 — on 26+ sound/vibration are channel properties
+            // (set on the "notice" NotificationChannel below), but this keeps behavior
+            // correct if minSdk is ever lowered.
+            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
@@ -99,13 +115,28 @@ class PushMessagingService : FirebaseMessagingService() {
     }
 
     private fun ensureChannels(notificationManager: NotificationManager) {
-        val channels = listOf(
-            Triple(getString(R.string.channel_notice), "조합공지", NotificationManager.IMPORTANCE_DEFAULT),
-            Triple(getString(R.string.channel_emergency), "긴급공지", NotificationManager.IMPORTANCE_HIGH),
-            Triple(getString(R.string.channel_general), "일반", NotificationManager.IMPORTANCE_LOW),
-        )
-        channels.forEach { (id, name, importance) ->
-            notificationManager.createNotificationChannel(NotificationChannel(id, name, importance))
+        // 조합공지 (notice): HIGH importance with sound+vibration — the channel spec that
+        // actually governs alert behavior on API 26+ (Builder.setDefaults above is the <26 fallback).
+        val noticeChannel = NotificationChannel(
+            getString(R.string.channel_notice), "조합공지", NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            enableVibration(true)
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+            )
         }
+        val emergencyChannel = NotificationChannel(
+            getString(R.string.channel_emergency), "긴급공지", NotificationManager.IMPORTANCE_HIGH
+        ).apply { enableVibration(true) }
+        val generalChannel = NotificationChannel(
+            getString(R.string.channel_general), "일반", NotificationManager.IMPORTANCE_LOW
+        )
+
+        notificationManager.createNotificationChannel(noticeChannel)
+        notificationManager.createNotificationChannel(emergencyChannel)
+        notificationManager.createNotificationChannel(generalChannel)
     }
 }
