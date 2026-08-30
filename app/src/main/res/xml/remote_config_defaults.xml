@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Firebase Remote Config defaults (SRS 4.4, Appendix B).
+  Loaded via FirebaseRemoteConfig.setDefaultsAsync(R.xml.remote_config_defaults) so the
+  fallback values used when the console hasn't been configured yet (or a fetch fails,
+  FR-401) are visible here instead of buried in Kotlin.
+-->
+<defaultsMap>
+    <entry>
+        <key>base_url</key>
+        <value>https://secunion.co.kr/index.html?device=mobile</value>
+    </entry>
+    <entry>
+        <key>allowed_hosts</key>
+        <value>["secunion.co.kr", "www.secunion.co.kr"]</value>
+    </entry>
+    <entry>
+        <key>maintenance_mode</key>
+        <value>false</value>
+    </entry>
+    <entry>
+        <key>maintenance_message</key>
+        <value>시스템 점검 중입니다. 잠시 후 다시 접속해 주세요.</value>
+    </entry>
+    <entry>
+        <key>latest_version</key>
+        <value>1.0.0</value>
+    </entry>
+    <entry>
+        <key>min_supported_version</key>
+        <value>1.0.0</value>
+    </entry>
+    <entry>
+        <key>apk_url</key>
+        <value>https://github.com/gotgilpartnerspartshares/mysecunion-android/releases/latest</value>
+    </entry>
+</defaultsMap>

@@ -27,31 +27,19 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mysecunion.app.databinding.ActivityMainBinding
-import com.google.firebase.ktx.Firebase
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig
-import com.google.firebase.remoteconfig.ktx.remoteConfig
-import com.google.firebase.remoteconfig.ktx.remoteConfigSettings
-import org.json.JSONArray
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_DEEP_LINK_URL = "deep_link_url" // FR-304
-
-        // FR-101: default start URL, overridable via Remote Config (base_url)
-        private const val DEFAULT_BASE_URL = "https://secunion.co.kr/index.html?device=mobile"
-
-        // FR-106/NFR-306: default whitelist, overridable via Remote Config (allowed_hosts)
-        private val DEFAULT_ALLOWED_HOSTS = setOf("secunion.co.kr", "www.secunion.co.kr")
-
         private const val BACK_EXIT_INTERVAL_MS = 2000L // FR-103
     }
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var remoteConfig: FirebaseRemoteConfig
+    private lateinit var remoteConfigManager: RemoteConfigManager
 
-    private var allowedHosts: Set<String> = DEFAULT_ALLOWED_HOSTS
+    private var allowedHosts: Set<String> = setOf("secunion.co.kr", "www.secunion.co.kr")
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var cameraCaptureUri: Uri? = null
     private var retryAction: () -> Unit = {}
@@ -81,7 +69,12 @@ class MainActivity : AppCompatActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen() // FR-201
+        // FR-201/FR-401: hold the splash on screen until the first Remote Config
+        // fetch settles (success or failure — either way we have values to act on).
+        val splashScreen = installSplashScreen()
+        var keepSplashOnScreen = true
+        splashScreen.setKeepOnScreenCondition { keepSplashOnScreen }
+
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -90,7 +83,8 @@ class MainActivity : AppCompatActivity() {
         setupBackPressedHandling() // FR-103
         binding.btnRetry.setOnClickListener { retryAction() } // FR-109
 
-        setupRemoteConfig()
+        remoteConfigManager = RemoteConfigManager()
+        fetchRemoteConfigAndProceed { keepSplashOnScreen = false }
         askNotificationPermission()
     }
 
@@ -121,42 +115,21 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun setupRemoteConfig() {
-        remoteConfig = Firebase.remoteConfig
-        val configSettings = remoteConfigSettings {
-            minimumFetchIntervalInSeconds = 3600
-        }
-        remoteConfig.setConfigSettingsAsync(configSettings)
-        remoteConfig.setDefaultsAsync(
-            mutableMapOf<String, Any>(
-                RemoteConfigKeys.BASE_URL to DEFAULT_BASE_URL,
-                RemoteConfigKeys.ALLOWED_HOSTS to defaultAllowedHostsJson(),
-                RemoteConfigKeys.MAINTENANCE_MODE to false,
-                RemoteConfigKeys.MAINTENANCE_MESSAGE to "",
-                RemoteConfigKeys.LATEST_VERSION to BuildConfig.VERSION_NAME,
-                RemoteConfigKeys.MIN_SUPPORTED_VERSION to BuildConfig.VERSION_NAME,
-            )
-        )
-        retryAction = { setupRemoteConfig() }
-        // activity-scoped listener: Firebase auto-detaches this at onStop, so a slow fetch
-        // can't fire onRemoteConfigReady() (AlertDialog etc.) against a dead/backgrounded Activity.
-        remoteConfig.fetchAndActivate().addOnCompleteListener(this) {
+    /** SRS 4.4/4.5: fetch Remote Config, then gate on maintenance mode / forced update before loading. */
+    private fun fetchRemoteConfigAndProceed(onSettled: () -> Unit) {
+        retryAction = { fetchRemoteConfigAndProceed(onSettled) }
+        remoteConfigManager.fetchAndActivate(this) {
             // FR-401: on failure, Remote Config keeps the last activated (or built-in default) values
             onRemoteConfigReady()
+            onSettled()
         }
     }
 
-    private fun defaultAllowedHostsJson(): String =
-        JSONArray(DEFAULT_ALLOWED_HOSTS.toList()).toString()
-
     private fun onRemoteConfigReady() {
-        allowedHosts = parseAllowedHosts(remoteConfig.getString(RemoteConfigKeys.ALLOWED_HOSTS))
+        allowedHosts = remoteConfigManager.allowedHosts()
 
-        if (remoteConfig.getBoolean(RemoteConfigKeys.MAINTENANCE_MODE)) {
-            showError(
-                remoteConfig.getString(RemoteConfigKeys.MAINTENANCE_MESSAGE)
-                    .ifBlank { getString(R.string.error_maintenance) } // FR-403
-            )
+        if (remoteConfigManager.isMaintenanceMode()) {
+            showMaintenanceBlock() // FR-403
             return
         }
 
@@ -170,20 +143,24 @@ class MainActivity : AppCompatActivity() {
         checkOptionalUpdate()
     }
 
+    /** FR-403: block entry entirely, with a blocking dialog that only offers to exit. */
+    private fun showMaintenanceBlock() {
+        val message = remoteConfigManager.maintenanceMessage()
+            .ifBlank { getString(R.string.error_maintenance) }
+        showError(message)
+        AlertDialog.Builder(this)
+            .setTitle("점검 안내")
+            .setMessage(message)
+            .setCancelable(false)
+            .setPositiveButton("종료") { _, _ -> finish() }
+            .show()
+    }
+
     /** FR-304: open the pushed article URL if present and within the whitelist, else base_url. */
     private fun resolveStartUrl(): String {
         val deepLink = intent?.getStringExtra(EXTRA_DEEP_LINK_URL)
         if (deepLink != null && isAllowedHost(Uri.parse(deepLink))) return deepLink
-        return remoteConfig.getString(RemoteConfigKeys.BASE_URL)
-    }
-
-    private fun parseAllowedHosts(json: String): Set<String> {
-        return try {
-            val arr = JSONArray(json)
-            (0 until arr.length()).map { arr.getString(it).lowercase() }.toSet()
-        } catch (e: Exception) {
-            DEFAULT_ALLOWED_HOSTS
-        }
+        return remoteConfigManager.baseUrl()
     }
 
     /** NFR-306: keep in-app navigation limited to the whitelist; everything else -> system apps. */
@@ -354,7 +331,7 @@ class MainActivity : AppCompatActivity() {
 
     /** FR-503: block usage entirely below min_supported_version. */
     private fun checkForcedUpdate(): Boolean {
-        val minVersion = remoteConfig.getString(RemoteConfigKeys.MIN_SUPPORTED_VERSION)
+        val minVersion = remoteConfigManager.minSupportedVersion()
         if (minVersion.isBlank() || !VersionUtils.isLower(BuildConfig.VERSION_NAME, minVersion)) {
             return false
         }
@@ -369,7 +346,7 @@ class MainActivity : AppCompatActivity() {
 
     /** FR-501/502: optional update notice. */
     private fun checkOptionalUpdate() {
-        val latest = remoteConfig.getString(RemoteConfigKeys.LATEST_VERSION)
+        val latest = remoteConfigManager.latestVersion()
         if (latest.isBlank() || !VersionUtils.isLower(BuildConfig.VERSION_NAME, latest)) return
 
         AlertDialog.Builder(this)
@@ -380,8 +357,9 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** FR-502/503: apk_url -> external browser (GitHub Releases). */
     private fun openApkUrl() {
-        val apkUrl = remoteConfig.getString(RemoteConfigKeys.APK_URL)
+        val apkUrl = remoteConfigManager.apkUrl()
         if (apkUrl.isNotBlank()) openExternally(Uri.parse(apkUrl))
     }
 
