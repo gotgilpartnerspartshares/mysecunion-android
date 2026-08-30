@@ -138,7 +138,9 @@ class MainActivity : AppCompatActivity() {
             )
         )
         retryAction = { setupRemoteConfig() }
-        remoteConfig.fetchAndActivate().addOnCompleteListener {
+        // activity-scoped listener: Firebase auto-detaches this at onStop, so a slow fetch
+        // can't fire onRemoteConfigReady() (AlertDialog etc.) against a dead/backgrounded Activity.
+        remoteConfig.fetchAndActivate().addOnCompleteListener(this) {
             // FR-401: on failure, Remote Config keeps the last activated (or built-in default) values
             onRemoteConfigReady()
         }
@@ -266,6 +268,9 @@ class MainActivity : AppCompatActivity() {
                     callback: ValueCallback<Array<Uri>>,
                     params: FileChooserParams?
                 ): Boolean {
+                    // WebView contract: an unanswered previous callback must get null before we
+                    // take a new one, or it (and its native-side resources) leaks indefinitely.
+                    filePathCallback?.onReceiveValue(null)
                     filePathCallback = callback
                     val chooserIntent = buildChooserIntent()
                     fileChooserLauncher.launch(chooserIntent)
@@ -408,8 +413,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** NFR-105: release WebView CPU/JS-timer resources while the app is backgrounded. */
+    override fun onPause() {
+        binding.webView.onPause()
+        binding.webView.pauseTimers()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        binding.webView.resumeTimers()
+        binding.webView.onResume()
+    }
+
+    /**
+     * Full teardown order matters: stop any in-flight load/JS first, detach from the
+     * view tree, then destroy — destroying a WebView that's still attached (or that's
+     * still mid-navigation) is the classic source of an Activity context leak.
+     */
     override fun onDestroy() {
-        binding.webView.destroy()
+        binding.webView.apply {
+            stopLoading()
+            webViewClient = object : WebViewClient() {} // drop the anonymous client's outer-class ref
+            webChromeClient = null
+            clearHistory()
+            (parent as? android.view.ViewGroup)?.removeView(this)
+            destroy()
+        }
         super.onDestroy()
     }
 }
