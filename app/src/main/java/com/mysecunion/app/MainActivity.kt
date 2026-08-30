@@ -24,7 +24,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.mysecunion.app.databinding.ActivityMainBinding
-import com.google.firebase.Firebase
+import com.google.firebase.ktx.Firebase
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.google.firebase.remoteconfig.ktx.remoteConfig
 import com.google.firebase.remoteconfig.ktx.remoteConfigSettings
@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
         }
         remoteConfig.setConfigSettingsAsync(configSettings)
         remoteConfig.setDefaultsAsync(
-            mapOf(
+            mutableMapOf<String, Any>(
                 RemoteConfigKeys.BASE_URL to getString(R.string.default_base_url),
                 RemoteConfigKeys.ALLOWED_HOSTS to """["${getString(R.string.default_allowed_host)}"]""",
                 RemoteConfigKeys.MAINTENANCE_MODE to false,

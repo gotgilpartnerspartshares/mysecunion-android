@@ -4,8 +4,10 @@
 /.idea
 .DS_Store
 /build
+**/build/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 app/google-services.json
+build_log.txt
