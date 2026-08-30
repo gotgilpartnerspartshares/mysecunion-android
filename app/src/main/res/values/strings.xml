@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">MySecUnion</string>
+
+    <!-- Notification channels (FR-305) -->
+    <string name="channel_notice">notice</string>
+    <string name="channel_emergency">emergency</string>
+    <string name="channel_general">general</string>
+
+    <!-- FCM auto-subscribe topic (FR-302) -->
+    <string name="fcm_topic_notice">notice</string>
+
+    <!-- Fallback defaults, overridden by Remote Config (Appendix B) -->
+    <string name="default_base_url" translatable="false">https://secunion.co.kr/index.html?device=mobile</string>
+    <string name="default_allowed_host" translatable="false">secunion.co.kr</string>
+</resources>
