@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FR-202/203: BottomNavigationView background is hardcoded to @color/white
+  (activity_main.xml), but the app theme is DayNight. Without an explicit
+  selector here, the unselected-item color falls back to a theme-derived
+  tone that can render near-white-on-white in system dark mode, making
+  every tab but the selected one invisible.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/purple_500" android:state_checked="true" />
+    <item android:color="#FF757575" android:state_checked="false" />
+</selector>
