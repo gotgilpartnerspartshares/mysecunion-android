@@ -208,7 +208,8 @@ class MainActivity : AppCompatActivity() {
         hideError()
         setupWebView()
         setupSwipeRefresh()
-        binding.webView.loadUrl(resolveStartUrl())
+        binding.webView.loadUrl(remoteConfigManager.baseUrl())
+        handleDeepLinkIntent(intent) // FR-304: overrides base_url if this launch came from a push
 
         checkOptionalUpdate()
     }
@@ -226,11 +227,25 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    /** FR-304: open the pushed article URL if present and within the whitelist, else base_url. */
-    private fun resolveStartUrl(): String {
-        val deepLink = intent?.getStringExtra(EXTRA_DEEP_LINK_URL)
-        if (deepLink != null && isAllowedHost(Uri.parse(deepLink))) return deepLink
-        return remoteConfigManager.baseUrl()
+    /**
+     * FR-304: extract "deep_link_url" from a push tap and, if it's within the whitelist,
+     * jump straight to that article. Called from both onCreate's post-setup flow (cold
+     * start via notification) and onNewIntent (tapped while already running) — MainActivity
+     * is launchMode="singleTask" so a warm tap re-delivers here instead of spawning a
+     * second instance.
+     */
+    private fun handleDeepLinkIntent(intent: Intent?) {
+        if (!::binding.isInitialized) return
+        val url = intent?.getStringExtra(EXTRA_DEEP_LINK_URL) ?: return
+        if (isAllowedHost(Uri.parse(url))) {
+            binding.webView.loadUrl(url)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent) // keep getIntent() consistent for anything reading it later
+        handleDeepLinkIntent(intent)
     }
 
     /** NFR-306: keep in-app navigation limited to the whitelist; everything else -> system apps. */

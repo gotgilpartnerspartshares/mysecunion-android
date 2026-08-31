@@ -83,7 +83,10 @@ class PushMessagingService : FirebaseMessagingService() {
         }
 
         val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            // NEW_TASK only (no CLEAR_TASK): MainActivity is launchMode="singleTask", so if it's
+            // already running the system reuses that instance via onNewIntent() instead of us
+            // forcing a destroy+recreate here.
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
             deepLinkUrl?.let { putExtra(MainActivity.EXTRA_DEEP_LINK_URL, it) } // FR-304
         }
         val pendingIntent = PendingIntent.getActivity(
