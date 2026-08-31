@@ -263,6 +263,8 @@ class MainActivity : AppCompatActivity() {
             settings.displayZoomControls = false
             settings.textZoom = 100 // FR-111: ignore system font scaling for layout stability
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW // NFR-301
+            settings.javaScriptCanOpenWindowsAutomatically = true // FR-112
+            settings.setSupportMultipleWindows(true) // FR-112: required for onCreateWindow to fire
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
@@ -336,6 +338,92 @@ class MainActivity : AppCompatActivity() {
                     filePathCallback = callback
                     val chooserIntent = buildChooserIntent()
                     fileChooserLauncher.launch(chooserIntent)
+                    return true
+                }
+
+                // FR-112: window.open()/target="_blank" — never spawn a real second window.
+                // Give the system a disposable WebView just to catch the URL it's asked to
+                // load, route that into the main WebView (whitelisted) or the browser
+                // (everything else), then throw the disposable view away.
+                override fun onCreateWindow(
+                    view: WebView,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: android.os.Message
+                ): Boolean {
+                    val popup = WebView(this@MainActivity)
+                    popup.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            v: WebView,
+                            request: WebResourceRequest
+                        ): Boolean {
+                            val uri = request.url
+                            if (isAllowedHost(uri)) {
+                                binding.webView.loadUrl(uri.toString())
+                            } else {
+                                openExternally(uri)
+                            }
+                            popup.destroy()
+                            return true
+                        }
+                    }
+                    val transport = resultMsg.obj as WebView.WebViewTransport
+                    transport.webView = popup
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
+                // FR-112: 사이트의 alert()/confirm()/prompt() 팝업레이어 — 기본 WebChromeClient는
+                // 이 콜백들을 구현하지 않으면 대화상자 없이 즉시 취소 처리해 삭제/투표 등 확인
+                // 흐름이 조용히 막힌다. 네이티브 다이얼로그로 대신 띄운다.
+                override fun onJsAlert(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    result: android.webkit.JsResult
+                ): Boolean {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm() }
+                        .setOnCancelListener { result.cancel() }
+                        .show()
+                    return true
+                }
+
+                override fun onJsConfirm(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    result: android.webkit.JsResult
+                ): Boolean {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message)
+                        .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm() }
+                        .setNegativeButton(android.R.string.cancel) { _, _ -> result.cancel() }
+                        .setOnCancelListener { result.cancel() }
+                        .show()
+                    return true
+                }
+
+                override fun onJsPrompt(
+                    view: WebView?,
+                    url: String?,
+                    message: String?,
+                    defaultValue: String?,
+                    result: android.webkit.JsPromptResult
+                ): Boolean {
+                    val input = android.widget.EditText(this@MainActivity).apply {
+                        setText(defaultValue)
+                    }
+                    AlertDialog.Builder(this@MainActivity)
+                        .setMessage(message)
+                        .setView(input)
+                        .setPositiveButton(android.R.string.ok) { _, _ ->
+                            result.confirm(input.text.toString())
+                        }
+                        .setNegativeButton(android.R.string.cancel) { _, _ -> result.cancel() }
+                        .setOnCancelListener { result.cancel() }
+                        .show()
                     return true
                 }
             }
