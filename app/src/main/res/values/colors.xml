@@ -1,7 +1,7 @@
 <resources>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
+    <!-- 동행 로고(부록 A "동행 SHOP") 배경색에서 추출한 브랜드 컬러 -->
+    <color name="brand_blue">#113194</color>
+    <color name="brand_blue_dark">#0C2268</color>
     <color name="white">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
 </resources>

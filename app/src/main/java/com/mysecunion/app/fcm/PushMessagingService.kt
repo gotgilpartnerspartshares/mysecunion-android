@@ -9,6 +9,7 @@ import android.content.SharedPreferences
 import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import com.mysecunion.app.BuildConfig
 import com.mysecunion.app.MainActivity
@@ -104,7 +105,8 @@ class PushMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body)) // FR-703: full text visible even if site is down
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(this, R.color.brand_blue))
             .setPriority(priority)
             // Only takes effect on API <26 — on 26+ sound/vibration are channel properties
             // (set on the "notice" NotificationChannel below), but this keeps behavior
